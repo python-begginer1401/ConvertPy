@@ -7,6 +7,7 @@ from io import BytesIO
 import textwrap
 
 
+
 # Initialize Google Gemini model
 model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
