@@ -52,7 +52,7 @@ if tabs == "🏠 Home":
 
 elif tabs == "📝 Convert python to executable":
     st.title("📝 Convert python to executable")
-    text_input = st.text_area("Enter your Python code 🐍 ", height=200)
+    text_input = st.text_area("Enter your Python code 🐍 ", height=200, placeholder="Write your Python code here...")
 
     if st.button("Translate code to C++") and api_key and text_input:
         try:
