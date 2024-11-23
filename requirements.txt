@@ -2,4 +2,6 @@ google-generativeai
 streamlit
 pypdf
 gtts
+os 
+subprocess
 
