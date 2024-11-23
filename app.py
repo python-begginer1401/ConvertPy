@@ -1,6 +1,5 @@
 import streamlit as st
 import google.generativeai as genai
-from gtts import gTTS
 from io import BytesIO
 import textwrap
 import subprocess  # For running system commands like g++ for C++ compilation
@@ -29,15 +28,16 @@ def to_markdown(text):
 
 # Function to compile C++ code to an executable
 def compile_cpp_to_exe(cpp_code, file_name="program"):
-    cpp_file_path = f"{file_name}.cpp"
-    exe_file_path = f"{file_name}.exe"
-    
+    # Clean file name to remove special characters and spaces
+    cpp_file_path = os.path.abspath(f"{file_name}.cpp").replace(" ", "_").replace("(", "").replace(")", "")
+    exe_file_path = os.path.abspath(f"{file_name}.exe").replace(" ", "_").replace("(", "").replace(")", "")
+
     # Save the C++ code to a file
     with open(cpp_file_path, "w") as cpp_file:
         cpp_file.write(cpp_code)
-    
-    # Compile the C++ file using g++
-    compile_command = ["g++", cpp_file_path, "-o", exe_file_path]
+
+    # Compile the C++ file using g++ with 64-bit architecture
+    compile_command = ["g++", "-m64", cpp_file_path, "-o", exe_file_path]
     try:
         result = subprocess.run(compile_command, capture_output=True, text=True)
         if result.returncode == 0:
@@ -46,7 +46,7 @@ def compile_cpp_to_exe(cpp_code, file_name="program"):
         else:
             st.error(f"Error during compilation:\n{result.stderr}")
             return None
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         st.error(f"Error during compilation: {e}")
         return None
     finally:
@@ -104,7 +104,7 @@ elif tabs == "📝 Convert Python to Executable":
                 st.download_button(
                     label="Download Executable",
                     data=file,
-                    file_name=exe_file,
+                    file_name=os.path.basename(exe_file),
                     mime="application/octet-stream"
                 )
         else:
