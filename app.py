@@ -7,7 +7,7 @@ import subprocess  # For running system commands like g++ for C++ compilation
 import os  # For handling file paths
 
 # Initialize Google Gemini model
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
+model = genai.GenerativeModel(model="gemini-1.5-flash-latest")
 
 # Sidebar for API Key input and tab selection
 with st.sidebar:
@@ -46,8 +46,8 @@ def compile_cpp_to_exe(cpp_code, file_name="program"):
         else:
             st.error(f"Error during compilation:\n{result.stderr}")
             return None
-    except subprocess.CalledProcessError as e:
-        st.error(f"Error during compilation: {e}")
+    except Exception as e:
+        st.error(f"An error occurred during compilation: {e}")
         return None
     finally:
         # Clean up the temporary C++ file
@@ -75,10 +75,13 @@ elif tabs == "📝 Convert Python to Executable":
             # Configure Google Gemini AI with API Key
             genai.configure(api_key=api_key)
             prompt_text = f"Translate the following Python code to equivalent C++ code:\n\n{text_input}"
-            response = model.generate_content(prompt_text).text
+            response = model.generate_text(prompt=prompt_text)
+
+            # Extract the text from the response object
+            cpp_code = response.result
 
             # Remove Markdown formatting from the response
-            clean_response = response.replace('```cpp', '').replace('```', '').strip()
+            clean_response = cpp_code.replace('```cpp', '').replace('```', '').strip()
 
             # Store translated code in session state
             st.session_state["translated_code"] = clean_response
@@ -107,5 +110,7 @@ elif tabs == "📝 Convert Python to Executable":
                     file_name=exe_file,
                     mime="application/octet-stream"
                 )
+            # Clean up the executable file after download
+            os.remove(exe_file)
         else:
             st.error("Compilation failed. Check the C++ code or try again.")
