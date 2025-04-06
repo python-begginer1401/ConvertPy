@@ -9,7 +9,7 @@ import os  # For handling file paths
 # Initialize Google Gemini model
 model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
-genai.configure(api_key="AIzaSyAiSJp0W7afRsvzQXKtYEA8kB26PeMzidc")
+apikey = genai.configure(api_key="AIzaSyAiSJp0W7afRsvzQXKtYEA8kB26PeMzidc")
 
 # Sidebar for API Key input and tab selection
 with st.sidebar:
