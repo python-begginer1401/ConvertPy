@@ -7,7 +7,7 @@ import subprocess  # For running system commands like g++ for C++ compilation
 import os  # For handling file paths
 
 # Initialize Google Gemini model
-model = genai.GenerativeModel(model="gemini-1.5-flash-latest")
+model = genai.GenerativeModel(model="gemini-2.5-flash-latest")
 
 # Sidebar for API Key input and tab selection
 with st.sidebar:
