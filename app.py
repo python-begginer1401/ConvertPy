@@ -72,29 +72,30 @@ elif tabs == "📝 Convert Python to Executable":
     text_input = st.text_area("Enter your Python code 🐍", height=200, placeholder="Write your Python code here...")
 
     # Translate Button
-if st.button("Translate Code to C++") and api_key and text_input:
-    try:
-        # Configure Google Gemini AI with API Key
-        genai.configure(api_key=api_key)
-        prompt_text = f"Translate the following Python code to equivalent C++ code:\n\n{text_input}"
-        response = model.generate_content(prompt_text)
+    if st.button("Translate Code to C++") and api_key and text_input:
+        try:
+            # Configure Google Gemini AI with API Key
+            genai.configure(api_key=api_key)
+            prompt_text = f"Translate the following Python code to equivalent C++ code:\n\n{text_input}"
+            response = model.generate_text(prompt=prompt_text)
 
-        # Extract the text from the response object
-        cpp_code = response.text
+            # Extract the text from the response object
+            cpp_code = response.result
 
-        # Remove Markdown formatting from the response
-        clean_response = cpp_code.replace('```cpp', '').replace('```', '').strip()
+            # Remove Markdown formatting from the response
+            clean_response = cpp_code.replace('
+cpp', '').replace('
+', '').strip()
 
-        # Store translated code in session state
-        st.session_state["translated_code"] = clean_response
-        st.session_state["compile_clicked"] = False  # Reset compile state
+            # Store translated code in session state
+            st.session_state["translated_code"] = clean_response
+            st.session_state["compile_clicked"] = False  # Reset compile state
 
-        st.write("### Translated C++ Code")
-        st.code(clean_response, language='cpp')
+            st.write("### Translated C++ Code")
+            st.code(clean_response, language='cpp')
 
-    except Exception as e:
-        st.error(f"An error occurred during translation: {e}")
-
+        except Exception as e:
+            st.error(f"An error occurred during translation: {e}")
 
     # Display Compile Button if Translation Exists
     if st.session_state["translated_code"]:
