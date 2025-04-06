@@ -9,12 +9,12 @@ import os  # For handling file paths
 # Initialize Google Gemini model
 model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
+genai.configure(api_key="AIzaSyAiSJp0W7afRsvzQXKtYEA8kB26PeMzidc")
+
 # Sidebar for API Key input and tab selection
 with st.sidebar:
     st.sidebar.title("Navigation")
     tabs = st.sidebar.radio("Select an option", ["🏠 Home", "📝 Convert Python to Executable"])
-
-    api_key = st.text_input("Google API Key", key="geminikey", type="password")
 
 # Initialize session states for button clicks
 if "translated_code" not in st.session_state:
