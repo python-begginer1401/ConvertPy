@@ -83,9 +83,7 @@ elif tabs == "📝 Convert Python to Executable":
             cpp_code = response.result
 
             # Remove Markdown formatting from the response
-            clean_response = cpp_code.replace('
-cpp', '').replace('
-', '').strip()
+            clean_response = cpp_code.replace('cpp', '').replace('', '').strip()
 
             # Store translated code in session state
             st.session_state["translated_code"] = clean_response
