@@ -6,17 +6,16 @@ import textwrap
 import subprocess  # For running system commands like g++ for C++ compilation
 import os  # For handling file paths
 
-# Initialize Google Gemini model
-model = genai.GenerativeModel("gemini-1.5-flash-latest")
-
 # Sidebar for API Key input and tab selection
 with st.sidebar:
     st.sidebar.title("Navigation")
     tabs = st.sidebar.radio("Select an option", ["🏠 Home", "📝 Convert Python to Executable"])
-
     api_key = st.text_input("Google API Key", key="geminikey", type="password")
 
-
+# Initialize Google Gemini model (only if API key is provided)
+if api_key:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash-latest")
 
 # Initialize session states for button clicks
 if "translated_code" not in st.session_state:
@@ -74,23 +73,22 @@ elif tabs == "📝 Convert Python to Executable":
     # Translate Button
     if st.button("Translate Code to C++") and api_key and text_input:
         try:
-            # Configure Google Gemini AI with API Key
-            genai.configure(api_key=api_key)
-            prompt_text = f"Translate the following Python code to equivalent C++ code:\n\n{text_input}"
-            response = model.generate_text(prompt=prompt_text)
-
+            prompt_text = f"Translate the following Python code to equivalent C++ code:\n\n{text_input}\n\nProvide only the C++ code without any additional explanations or markdown formatting."
+            response = model.generate_content(prompt_text)
+            
             # Extract the text from the response object
-            cpp_code = response.result
-
-            # Remove Markdown formatting from the response
-            clean_response = cpp_code.replace('cpp', '').replace('', '').strip()
+            if hasattr(response, 'text'):
+                cpp_code = response.text
+            else:
+                # Try alternative way to access the response
+                cpp_code = response.candidates[0].content.parts[0].text
 
             # Store translated code in session state
-            st.session_state["translated_code"] = clean_response
+            st.session_state["translated_code"] = cpp_code.strip()
             st.session_state["compile_clicked"] = False  # Reset compile state
 
             st.write("### Translated C++ Code")
-            st.code(clean_response, language='cpp')
+            st.code(st.session_state["translated_code"], language='cpp')
 
         except Exception as e:
             st.error(f"An error occurred during translation: {e}")
