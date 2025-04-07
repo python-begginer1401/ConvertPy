@@ -18,20 +18,23 @@ if "translated_code" not in st.session_state:
 if "compile_clicked" not in st.session_state:
     st.session_state["compile_clicked"] = False
 
-def to_markdown(text):
-    text = text.replace('•', '  *')
-    return textwrap.indent(text, '> ', predicate=lambda _: True)
+def get_os_info():
+    """Returns (os_name, executable_extension) tuple"""
+    system = platform.system().lower()
+    if system == "darwin":
+        return "macOS", ""
+    elif system == "windows":
+        return "Windows", ".exe"
+    elif system == "linux":
+        return "Linux", ""
+    else:
+        return system.capitalize(), ""
 
 def compile_cpp_code(cpp_code, file_name="program"):
     """Cross-platform compilation function"""
     cpp_file_path = f"{file_name}.cpp"
-    current_os = platform.system().lower()
-    
-    # Determine executable name based on OS
-    if current_os == "windows":
-        exe_name = f"{file_name}.exe"
-    else:
-        exe_name = file_name  # Linux/Mac uses no extension
+    os_name, exe_ext = get_os_info()
+    exe_name = f"{file_name}{exe_ext}"
     
     # Save the C++ code to a file
     with open(cpp_file_path, "w") as cpp_file:
@@ -39,19 +42,23 @@ def compile_cpp_code(cpp_code, file_name="program"):
     
     # Platform-specific compilation flags
     compile_command = ["g++", cpp_file_path, "-o", exe_name]
-    if current_os != "windows":
-        compile_command.extend(["-std=c++11", "-pthread"])  # Common Linux/Mac flags
+    if os_name != "Windows":
+        compile_command.extend(["-std=c++11", "-pthread"])  # Common Unix flags
     
     try:
         result = subprocess.run(compile_command, capture_output=True, text=True)
         if result.returncode == 0:
-            st.success(f"Compilation successful for {current_os.capitalize()}!")
+            st.success(f"Compilation successful for {os_name}!")
             return exe_name
         else:
             st.error(f"Compilation error:\n{result.stderr}")
             return None
     except FileNotFoundError:
-        st.error("Compiler not found. Please install g++ on your system.")
+        st.error(f"Compiler not found. Please install g++ on your {os_name} system.")
+        if os_name == "macOS":
+            st.info("On macOS, install Xcode Command Line Tools with: xcode-select --install")
+        elif os_name == "Linux":
+            st.info("On Linux, install with: sudo apt-get install build-essential")
         return None
     except Exception as e:
         st.error(f"An error occurred during compilation: {e}")
@@ -64,11 +71,14 @@ def compile_cpp_code(cpp_code, file_name="program"):
 # Main Page Tab
 if tabs == "🏠 Home":
     st.title("🐍 ConvertPy (Cross-Platform)")
-    st.write("""
+    os_name, _ = get_os_info()
+    st.write(f"""
         Welcome to ConvertPy! 
         
         This tool converts Python code to C++ and compiles it for your operating system.
-        Current supported platforms: Windows, Linux, and MacOS.
+        Detected OS: **{os_name}**
+        
+        Current supported platforms: Windows, Linux, and macOS.
         
         Select the conversion tab from the sidebar to get started!
     """)
@@ -77,8 +87,8 @@ if tabs == "🏠 Home":
 # Convert Python to Executable Tab
 elif tabs == "📝 Convert Python to Executable":
     st.title("📝 Convert Python to Executable")
-    current_os = platform.system()
-    st.write(f"Detected OS: **{current_os}**")
+    os_name, exe_ext = get_os_info()
+    st.write(f"Detected OS: **{os_name}**")
     
     text_input = st.text_area("Enter your Python code 🐍", height=200, 
                             placeholder="Write your Python code here...")
@@ -90,17 +100,20 @@ elif tabs == "📝 Convert Python to Executable":
             
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
             
             prompt = f"""Convert the following Python code to standard C++11 code:
             {text_input}
             
             Requirements:
             1. Use only standard C++11 features
-            2. Make it portable across Windows, Linux and MacOS
+            2. Make it portable across Windows, Linux and macOS
             3. Include all necessary headers
             4. Return only the pure C++ code with no additional explanations
             5. Ensure the code is properly indented
+            6. Include input/output handling if needed
+            7. Use modern C++ practices
+            8. Avoid platform-specific APIs
             """
             
             response = model.generate_content(prompt)
@@ -120,8 +133,9 @@ elif tabs == "📝 Convert Python to Executable":
                 cpp_code = cpp_code[6:]
             if cpp_code.endswith("```"):
                 cpp_code = cpp_code[:-3]
+            cpp_code = cpp_code.strip()
             
-            st.session_state["translated_code"] = cpp_code.strip()
+            st.session_state["translated_code"] = cpp_code
             st.session_state["compile_clicked"] = False
 
             st.write("### Translated C++ Code")
@@ -129,6 +143,7 @@ elif tabs == "📝 Convert Python to Executable":
 
         except Exception as e:
             st.error(f"Translation failed: {str(e)}")
+            st.error("Please ensure you're using the correct model name and API version")
 
     if st.session_state.get("translated_code"):
         st.write("### Compilation Options")
@@ -144,11 +159,10 @@ elif tabs == "📝 Convert Python to Executable":
                     with open(exe_file, "rb") as f:
                         exe_bytes = f.read()
                     
-                    download_ext = ".exe" if platform.system() == "Windows" else ""
                     st.download_button(
-                        label=f"Download Executable for {current_os}",
+                        label=f"Download Executable for {os_name}",
                         data=exe_bytes,
-                        file_name=f"program{download_ext}",
+                        file_name=f"program{exe_ext}",
                         mime="application/octet-stream"
                     )
                 except Exception as e:
