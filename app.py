@@ -1,10 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
-from gtts import gTTS
+import subprocess
+import os
+import platform
 from io import BytesIO
 import textwrap
-import subprocess  # For running system commands like g++ for C++ compilation
-import os  # For handling file paths
 
 # Sidebar for API Key input and tab selection
 with st.sidebar:
@@ -12,105 +12,147 @@ with st.sidebar:
     tabs = st.sidebar.radio("Select an option", ["🏠 Home", "📝 Convert Python to Executable"])
     api_key = st.text_input("Google API Key", key="geminikey", type="password")
 
-# Initialize Google Gemini model (only if API key is provided)
-if api_key:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash-latest")
-
-# Initialize session states for button clicks
+# Initialize session states
 if "translated_code" not in st.session_state:
     st.session_state["translated_code"] = ""
 if "compile_clicked" not in st.session_state:
     st.session_state["compile_clicked"] = False
 
-# Function to convert text to Markdown format
 def to_markdown(text):
     text = text.replace('•', '  *')
     return textwrap.indent(text, '> ', predicate=lambda _: True)
 
-# Function to compile C++ code to an executable
-def compile_cpp_to_exe(cpp_code, file_name="program"):
+def compile_cpp_code(cpp_code, file_name="program"):
+    """Cross-platform compilation function"""
     cpp_file_path = f"{file_name}.cpp"
-    exe_file_path = f"{file_name}.exe"
+    current_os = platform.system().lower()
+    
+    # Determine executable name based on OS
+    if current_os == "windows":
+        exe_name = f"{file_name}.exe"
+    else:
+        exe_name = file_name  # Linux/Mac uses no extension
     
     # Save the C++ code to a file
     with open(cpp_file_path, "w") as cpp_file:
         cpp_file.write(cpp_code)
     
-    # Compile the C++ file using g++
-    compile_command = ["g++", cpp_file_path, "-o", exe_file_path]
+    # Platform-specific compilation flags
+    compile_command = ["g++", cpp_file_path, "-o", exe_name]
+    if current_os != "windows":
+        compile_command.extend(["-std=c++11", "-pthread"])  # Common Linux/Mac flags
+    
     try:
         result = subprocess.run(compile_command, capture_output=True, text=True)
         if result.returncode == 0:
-            st.success(f"Compilation successful! You can download the executable below.")
-            return exe_file_path
+            st.success(f"Compilation successful for {current_os.capitalize()}!")
+            return exe_name
         else:
-            st.error(f"Error during compilation:\n{result.stderr}")
+            st.error(f"Compilation error:\n{result.stderr}")
             return None
+    except FileNotFoundError:
+        st.error("Compiler not found. Please install g++ on your system.")
+        return None
     except Exception as e:
         st.error(f"An error occurred during compilation: {e}")
         return None
     finally:
-        # Clean up the temporary C++ file
+        # Clean up the C++ file
         if os.path.exists(cpp_file_path):
             os.remove(cpp_file_path)
 
 # Main Page Tab
 if tabs == "🏠 Home":
-    st.title("🐍 ConvertPy")
+    st.title("🐍 ConvertPy (Cross-Platform)")
     st.write("""
         Welcome to ConvertPy! 
         
-        ConvertPy is an advanced AI-powered platform designed to effortlessly convert Python code into optimized C++ and compile it into executable files. 
-        Select the tab from the sidebar to get started!
+        This tool converts Python code to C++ and compiles it for your operating system.
+        Current supported platforms: Windows, Linux, and MacOS.
+        
+        Select the conversion tab from the sidebar to get started!
     """)
+    st.info("Note: You'll need g++ compiler installed on your system.")
 
 # Convert Python to Executable Tab
 elif tabs == "📝 Convert Python to Executable":
     st.title("📝 Convert Python to Executable")
-    text_input = st.text_area("Enter your Python code 🐍", height=200, placeholder="Write your Python code here...")
+    current_os = platform.system()
+    st.write(f"Detected OS: **{current_os}**")
+    
+    text_input = st.text_area("Enter your Python code 🐍", height=200, 
+                            placeholder="Write your Python code here...")
 
-    # Translate Button
-    if st.button("Translate Code to C++") and api_key and text_input:
-        try:
-            prompt_text = f"Translate the following Python code to equivalent C++ code:\n\n{text_input}\n\nProvide only the C++ code without any additional explanations or markdown formatting."
-            response = model.generate_content(prompt_text)
+    if st.button("Translate Code to C++") and text_input:
+        if not api_key:
+            st.error("Please enter your Google API Key in the sidebar")
+            st.stop()
             
-            # Extract the text from the response object
-            if hasattr(response, 'text'):
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-pro')
+            
+            prompt = f"""Convert the following Python code to standard C++11 code:
+            {text_input}
+            
+            Requirements:
+            1. Use only standard C++11 features
+            2. Make it portable across Windows, Linux and MacOS
+            3. Include all necessary headers
+            4. Return only the pure C++ code with no additional explanations
+            5. Ensure the code is properly indented
+            """
+            
+            response = model.generate_content(prompt)
+            
+            # Extract the generated C++ code
+            if response and hasattr(response, 'text'):
                 cpp_code = response.text
-            else:
-                # Try alternative way to access the response
+            elif response.candidates:
                 cpp_code = response.candidates[0].content.parts[0].text
-
-            # Store translated code in session state
+            else:
+                st.error("No valid response from the AI model")
+                st.stop()
+                
+            # Clean up the response
+            cpp_code = cpp_code.strip()
+            if cpp_code.startswith("```cpp"):
+                cpp_code = cpp_code[6:]
+            if cpp_code.endswith("```"):
+                cpp_code = cpp_code[:-3]
+            
             st.session_state["translated_code"] = cpp_code.strip()
-            st.session_state["compile_clicked"] = False  # Reset compile state
+            st.session_state["compile_clicked"] = False
 
             st.write("### Translated C++ Code")
             st.code(st.session_state["translated_code"], language='cpp')
 
         except Exception as e:
-            st.error(f"An error occurred during translation: {e}")
+            st.error(f"Translation failed: {str(e)}")
 
-    # Display Compile Button if Translation Exists
-    if st.session_state["translated_code"]:
-        st.write("### Ready to Compile")
-        if st.button("Compile C++ to Executable"):
+    if st.session_state.get("translated_code"):
+        st.write("### Compilation Options")
+        if st.button("Compile for My System"):
             st.session_state["compile_clicked"] = True
 
-    # Handle Compilation Process
-    if st.session_state["compile_clicked"]:
-        exe_file = compile_cpp_to_exe(st.session_state["translated_code"])
-        if exe_file:
-            with open(exe_file, "rb") as file:
-                st.download_button(
-                    label="Download Executable",
-                    data=file,
-                    file_name=exe_file,
-                    mime="application/octet-stream"
-                )
-            # Clean up the executable file after download
-            os.remove(exe_file)
-        else:
-            st.error("Compilation failed. Check the C++ code or try again.")
+    if st.session_state.get("compile_clicked"):
+        with st.spinner("Compiling..."):
+            exe_file = compile_cpp_code(st.session_state["translated_code"])
+            
+            if exe_file:
+                try:
+                    with open(exe_file, "rb") as f:
+                        exe_bytes = f.read()
+                    
+                    download_ext = ".exe" if platform.system() == "Windows" else ""
+                    st.download_button(
+                        label=f"Download Executable for {current_os}",
+                        data=exe_bytes,
+                        file_name=f"program{download_ext}",
+                        mime="application/octet-stream"
+                    )
+                except Exception as e:
+                    st.error(f"Failed to prepare download: {e}")
+                finally:
+                    if os.path.exists(exe_file):
+                        os.remove(exe_file)
