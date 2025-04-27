@@ -5,6 +5,13 @@ import os
 import platform
 from io import BytesIO
 import textwrap
+import requests
+import time
+
+while True:
+    requests.get("https://convertpy.streamlit.app/")
+    time.sleep(300)  # Ping every 5 minutes
+
 
 # Sidebar for API Key input and tab selection
 with st.sidebar:
