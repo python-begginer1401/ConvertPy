@@ -2,242 +2,257 @@ import streamlit as st
 import google.generativeai as genai
 import subprocess
 import os
-import platform
-from io import BytesIO
-import requests
-import time
+import tempfile
+import textwrap
+from typing import Optional, Tuple
 
-# --- Utility Functions ---
-def ping_streamlit_app(app_url="https://convertpy.streamlit.app/", interval_seconds=300):
-    """Pings a Streamlit app at a specified interval to prevent it from idling."""
-    while True:
-        try:
-            requests.get(app_url)
-            time.sleep(interval_seconds)
-        except requests.exceptions.RequestException as e:
-            print(f"Error pinging app: {e}")
-            time.sleep(interval_seconds * 2) # Longer delay on error
-        except KeyboardInterrupt:
-            print("Pinging stopped by user.")
-            break
+# Constants
+DEFAULT_CPP_FILE = "converted_program.cpp"
+DEFAULT_EXE_FILE = "converted_program.exe"
+MAX_CODE_LENGTH = 5000  # characters
 
-def get_os_info():
-    """Identifies the operating system and its executable extension."""
-    system = platform.system().lower()
-    if system == "darwin":
-        return "macOS", ""
-    elif system == "windows":
-        return "Windows", ".exe"
-    elif system == "linux":
-        return "Linux", ""
-    else:
-        return system.capitalize(), ""
-
-def save_code_to_file(code_string, file_path):
-    """Safely saves a string of code to a file."""
-    try:
-        with open(file_path, "w") as file:
-            file.write(code_string)
-        return True
-    except IOError as e:
-        st.error(f"Error saving code to {file_path}: {e}")
-        return False
-
-def compile_cpp_code(cpp_code, file_name="program"):
-    """Compiles C++ code for the detected operating system."""
-    cpp_file_path = f"{file_name}.cpp"
-    os_name, exe_ext = get_os_info()
-    exe_name = f"{file_name}{exe_ext}"
-
-    if not save_code_to_file(cpp_code, cpp_file_path):
-        return None
-
-    compile_command = ["g++", cpp_file_path, "-o", exe_name]
-    if os_name != "Windows":
-        compile_command.extend(["-std=c++11", "-pthread"])
-
-    try:
-        result = subprocess.run(compile_command, capture_output=True, text=True, check=True)
-        st.success(f"Compilation successful for {os_name}!")
-        return exe_name
-    except subprocess.CalledProcessError as e:
-        st.error(f"Compilation error:\n{e.stderr}")
-        return None
-    except FileNotFoundError:
-        st.error(f"Compiler not found. Please ensure g++ is installed on your {os_name} system.")
-        if os_name == "macOS":
-            st.info("Install Xcode Command Line Tools: `xcode-select --install`")
-        elif os_name == "Linux":
-            st.info("Install build-essential: `sudo apt-get update && sudo apt-get install build-essential`")
-        return None
-    except Exception as e:
-        st.error(f"An unexpected error occurred during compilation: {e}")
-        return None
-    finally:
-        if os.path.exists(cpp_file_path):
-            os.remove(cpp_file_path)
-
-def translate_python_to_cpp(python_code, api_key, model_name):
-    """Translates Python code to C++ using the specified AI model."""
-    if not api_key:
-        st.error(f"Please enter your API Key for {model_name} in the sidebar.")
-        return None
-
-    try:
-        if model_name.startswith("gemini"):
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(model_name)
-
-            prompt = f"""Convert the following Python code to standard, portable C++11 code:
-            ```python
-            {python_code}
-            ```
-
-            Requirements:
-            1. Adhere strictly to the C++11 standard for maximum portability.
-            2. Ensure compatibility across Windows, Linux, and macOS.
-            3. Include all necessary standard library headers.
-            4. Provide only the raw C++ code, without any additional explanations or comments.
-            5. Maintain proper indentation and code formatting.
-            6. Implement input/output handling using standard C++ streams where necessary.
-            7. Employ modern C++ practices for clarity and efficiency.
-            8. Avoid any platform-specific libraries or APIs.
-            """
-
-            response = model.generate_content(prompt)
-
-            if response and hasattr(response, 'text'):
-                cpp_code = response.text.strip()
-            elif response.candidates and response.candidates[0].content.parts:
-                cpp_code = response.candidates[0].content.parts[0].text.strip()
-            else:
-                st.error(f"Failed to retrieve a valid C++ code response from the {model_name} model.")
-                return None
-
-            # Clean up potential markdown formatting
-            if cpp_code.startswith("```cpp"):
-                cpp_code = cpp_code[6:]
-            if cpp_code.endswith("```"):
-                cpp_code = cpp_code[:-3]
-            return cpp_code.strip()
-        elif model_name.startswith("huggingface"):
-            st.error("Hugging Face integration is not yet implemented in this version.")
-            st.info("Please check for future updates.")
-            return None
-        else:
-            st.error(f"Unsupported AI model: {model_name}")
-            return None
-
-    except Exception as e:
-        st.error(f"Code translation failed with {model_name}: {e}")
-        st.error("Please verify your API key and model name.")
-        return None
-
-# --- Streamlit UI ---
-def main():
-    st.set_page_config(page_title="ConvertPy", page_icon="🐍")
-
-    # Initialize session states
+def initialize_session_state():
+    """Initialize all necessary session state variables."""
     if "translated_code" not in st.session_state:
-        st.session_state["translated_code"] = ""
+        st.session_state.translated_code = ""
     if "compile_clicked" not in st.session_state:
-        st.session_state["compile_clicked"] = False
+        st.session_state.compile_clicked = False
+    if "translation_success" not in st.session_state:
+        st.session_state.translation_success = False
+    if "compilation_output" not in st.session_state:
+        st.session_state.compilation_output = ""
 
-    # Sidebar for navigation and API key/model selection
-    with st.sidebar:
-        st.sidebar.title("⚙️ Configuration")
-        tabs = st.sidebar.radio("Navigate", ["🏠 Home", "📝 Convert & Compile"])
-        ai_model_option = st.selectbox("Choose AI Model", ["gemini-1.5-pro-latest", "gemini-pro", "huggingface (Not Implemented Yet)"])
+def configure_gemini(api_key: str) -> Optional[genai.GenerativeModel]:
+    """Configure and return the Gemini model instance."""
+    try:
+        genai.configure(api_key=api_key)
+        return genai.GenerativeModel("gemini-1.5-flash-latest")
+    except Exception as e:
+        st.error(f"Failed to configure Gemini: {str(e)}")
+        return None
 
-        api_key = None
-        if ai_model_option.startswith("gemini"):
-            api_key = st.text_input(f"🔑 Google API Key for {ai_model_option}", key="geminikey", type="password", help="Enter your Google Gemini API key")
-        elif ai_model_option.startswith("huggingface"):
-            api_key = st.text_input(f"🔑 Hugging Face API Token", key="huggingface_token", type="password", help="Enter your Hugging Face API token (if required)")
+def generate_translation_prompt(python_code: str) -> str:
+    """Generate a detailed prompt for code translation."""
+    return f"""
+    Translate the following Python code to optimized, compilable C++ code:
+    
+    1. Preserve all functionality and logic
+    2. Use modern C++ standards (C++17 or later)
+    3. Handle memory management appropriately (RAII, smart pointers)
+    4. Include necessary standard library headers
+    5. Replace Python dynamic typing with appropriate C++ static types
+    6. Convert Python standard library calls to equivalent C++ calls
+    
+    Python Code:
+    ```python
+    {python_code}
+    ```
+    
+    Provide only the C++ code without additional explanations or markdown formatting.
+    """
 
-    # Main content area
-    if tabs == "🏠 Home":
-        st.title("🐍 ConvertPy: Python to Executable")
-        os_name, _ = get_os_info()
-        st.markdown(
-            f"""
-            Welcome to **ConvertPy**, a tool designed to translate your Python code into portable C++ and compile it into an executable for your system.
+def translate_code(model: genai.GenerativeModel, python_code: str) -> Tuple[bool, str]:
+    """Translate Python code to C++ using Gemini."""
+    try:
+        prompt = generate_translation_prompt(python_code)
+        response = model.generate_content(prompt)
+        
+        if not response.text:
+            return False, "Empty response from translation model"
+            
+        # Clean up the response
+        clean_code = response.text.replace('```cpp', '').replace('```', '').strip()
+        return True, clean_code
+        
+    except Exception as e:
+        return False, f"Translation error: {str(e)}"
 
-            **Detected Operating System:** `{os_name}`
-
-            **Key Features:**
-            - Translate Python code to standard C++11 using your choice of AI model (currently supports Google Gemini).
-            - Compile the generated C++ code directly within the application.
-            - Download the compiled executable for your operating system.
-            - Supports Windows, Linux, and macOS.
-
-            **Prerequisites:**
-            - An API Key for your chosen AI model (enter in the sidebar).
-            - The `g++` compiler must be installed on your system.
-
-            **Get Started:**
-            1. Navigate to the "Convert & Compile" tab in the sidebar.
-            2. Choose your preferred AI model from the dropdown.
-            3. Enter the corresponding API key in the sidebar.
-            4. Enter your Python code in the text area.
-            5. Click "Translate Code to C++".
-            6. Review the translated C++ code.
-            7. Click "Compile for My System" to build the executable.
-            8. Download the generated executable.
-
-            **Note:** The accuracy and functionality of the translated code depend on the complexity and structure of the input Python code and the capabilities of the AI model.
-            """
-        )
-        st.info("For optimal results, ensure your Python code is well-structured and adheres to standard practices.")
-
-    elif tabs == "📝 Convert & Compile":
-        st.title("📝 Python to Executable Conversion")
-        os_name, exe_ext = get_os_info()
-        st.info(f"Detected Operating System: **{os_name}**")
-
-        python_code = st.text_area("Enter your Python code here:", height=250, placeholder="```python\nprint('Hello, World!')\n```")
-
-        if st.button("✨ Translate Code to C++"):
-            if python_code:
-                with st.spinner(f"Translating with {ai_model_option}..."):
-                    cpp_code = translate_python_to_cpp(python_code, st.session_state.get("geminikey") if ai_model_option.startswith("gemini") else st.session_state.get("huggingface_token"), ai_model_option)
-                    if cpp_code:
-                        st.session_state["translated_code"] = cpp_code
-                        st.session_state["compile_clicked"] = False
-                        st.subheader("Generated C++ Code:")
-                        st.code(st.session_state["translated_code"], language='cpp')
+def compile_cpp_code(cpp_code: str, cpp_filename: str, exe_filename: str) -> Tuple[bool, str]:
+    """Compile C++ code to executable and return status and output."""
+    try:
+        # Save to temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cpp_path = os.path.join(temp_dir, cpp_filename)
+            exe_path = os.path.join(temp_dir, exe_filename)
+            
+            # Write C++ code to file
+            with open(cpp_path, 'w') as f:
+                f.write(cpp_code)
+            
+            # Compile with optimizations and warnings
+            compile_cmd = [
+                "g++", 
+                "-std=c++17",
+                "-Wall", 
+                "-Wextra",
+                "-O2",
+                cpp_path,
+                "-o", 
+                exe_path
+            ]
+            
+            result = subprocess.run(
+                compile_cmd,
+                capture_output=True,
+                text=True,
+                cwd=temp_dir
+            )
+            
+            if result.returncode == 0:
+                # Read the executable binary
+                with open(exe_path, 'rb') as f:
+                    exe_data = f.read()
+                return True, exe_data
             else:
-                st.warning("Please enter Python code to translate.")
+                return False, result.stderr
+                
+    except Exception as e:
+        return False, f"Compilation error: {str(e)}"
 
-        if st.session_state.get("translated_code"):
-            st.subheader("Compilation")
-            if st.button("🔨 Compile for My System"):
-                st.session_state["compile_clicked"] = True
+def display_sidebar() -> str:
+    """Render the sidebar and return the selected API key."""
+    with st.sidebar:
+        st.title("ConvertPy Settings")
+        
+        # API Key Input
+        api_key = st.text_input(
+            "Google API Key",
+            type="password",
+            help="Enter your Google Gemini API key for code translation"
+        )
+        
+        # About section
+        st.markdown("---")
+        st.markdown("### About ConvertPy")
+        st.markdown("""
+        ConvertPy leverages LLMs to translate Python code to C++ and compile it 
+        to native executables, based on research by Al-Hussain & Alsubait (2025).
+        """)
+        
+        return api_key
 
-        if st.session_state.get("compile_clicked"):
+def display_home_page():
+    """Render the home/landing page."""
+    st.title("🐍 ConvertPy: Python to C++ Executable Translator")
+    st.markdown("""
+    ### Research-Based Code Translation
+        
+    Welcome to ConvertPy, an implementation of the LLM-powered Python-to-C++ translation 
+    framework described in the paper:
+    
+    > **ConvertPy: Leveraging Large Language Models (LLMs) for Reliable and Scalable Code Translations**  
+    > *Safa'a al-Hussain & Tahani Alsubait (2025)*
+    
+    ### Key Features:
+    - **AI-Powered Translation**: Uses Google Gemini for accurate Python-to-C++ conversion
+    - **Native Executables**: Compiles translated code to platform-specific binaries
+    - **Research-Backed**: Implements the architecture from the ConvertPy paper
+    
+    ### How It Works:
+    1. Enter your Python code in the translator tab
+    2. The system will generate equivalent C++ code
+    3. Compile the C++ code to a standalone executable
+    4. Download and run the executable
+    
+    ### Supported Use Cases:
+    - Converting Python prototypes to optimized C++ implementations
+    - Creating distributable versions of Python tools
+    - Educational comparisons between Python and C++ syntax
+    - IoT and embedded systems development
+    """)
+
+def display_translator_page(api_key: str):
+    """Render the code translation page."""
+    st.title("Python to C++ Code Translator")
+    
+    # Code input section
+    python_code = st.text_area(
+        "Enter Python Code",
+        height=300,
+        placeholder="Enter your Python code here...",
+        help="The Python code you want to translate to C++"
+    )
+    
+    # Translation button
+    if st.button("Translate to C++", disabled=not (api_key and python_code)):
+        if len(python_code) > MAX_CODE_LENGTH:
+            st.error(f"Code exceeds maximum length of {MAX_CODE_LENGTH} characters")
+            return
+            
+        with st.spinner("Translating Python to C++..."):
+            model = configure_gemini(api_key)
+            if model:
+                success, result = translate_code(model, python_code)
+                
+                if success:
+                    st.session_state.translated_code = result
+                    st.session_state.translation_success = True
+                    st.session_state.compile_clicked = False
+                    
+                    st.success("Translation successful!")
+                    st.subheader("Translated C++ Code")
+                    st.code(result, language="cpp")
+                else:
+                    st.error(f"Translation failed: {result}")
+    
+    # Display translated code if available
+    if st.session_state.translated_code:
+        st.subheader("Translated C++ Code")
+        st.code(st.session_state.translated_code, language="cpp")
+        
+        # Compilation section
+        if st.button("Compile to Executable", disabled=not st.session_state.translation_success):
+            st.session_state.compile_clicked = True
+            
+        if st.session_state.compile_clicked:
             with st.spinner("Compiling C++ code..."):
-                executable_file = compile_cpp_code(st.session_state["translated_code"])
-                if executable_file:
-                    try:
-                        with open(executable_file, "rb") as f:
-                            executable_bytes = f.read()
-                        st.download_button(
-                            label=f"💾 Download Executable for {os_name}",
-                            data=executable_bytes,
-                            file_name=f"program{exe_ext}",
-                            mime="application/octet-stream",
-                            key="download_button"
-                        )
-                    except Exception as e:
-                        st.error(f"Error preparing the executable for download: {e}")
-                    finally:
-                        if os.path.exists(executable_file):
-                            os.remove(executable_file)
+                success, result = compile_cpp_code(
+                    st.session_state.translated_code,
+                    DEFAULT_CPP_FILE,
+                    DEFAULT_EXE_FILE
+                )
+                
+                if success:
+                    st.success("Compilation successful!")
+                    st.download_button(
+                        label="Download Executable",
+                        data=result,
+                        file_name=DEFAULT_EXE_FILE,
+                        mime="application/octet-stream"
+                    )
+                else:
+                    st.error("Compilation failed")
+                    st.text_area("Compiler Output", result, height=200)
+
+def main():
+    """Main application flow."""
+    # Initialize session state
+    initialize_session_state()
+    
+    # Set page config
+    st.set_page_config(
+        page_title="ConvertPy - Python to C++ Translator",
+        page_icon="🔄",
+        layout="wide"
+    )
+    
+    # Get API key from sidebar
+    api_key = display_sidebar()
+    
+    # Page selection
+    page = st.sidebar.radio(
+        "Navigation",
+        ["🏠 Home", "🔄 Translator"],
+        label_visibility="collapsed"
+    )
+    
+    # Display selected page
+    if page == "🏠 Home":
+        display_home_page()
+    else:
+        if not api_key:
+            st.warning("Please enter your Google API key in the sidebar to use the translator")
+        display_translator_page(api_key)
 
 if __name__ == "__main__":
-    # Start the pinging process in a separate thread
-    import threading
-    ping_thread = threading.Thread(target=ping_streamlit_app, daemon=True)
-    ping_thread.start()
-
     main()
