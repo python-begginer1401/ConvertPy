@@ -146,7 +146,7 @@ def help_page():
         - Ensure `g++` is installed and available in your system's PATH.
         - Use valid API keys for translation models.
         - Check your Python code syntax before translating.
-    - **Need More Help?** [Contact Support](https://example.com/support)
+    - **Need More Help?** [Contact Support](https://t.me/SWE_ME)
     """)
 
 # Display the Recent Activity page
