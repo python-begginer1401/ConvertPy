@@ -6,6 +6,11 @@ import os
 import platform
 from typing import Optional
 
+st.set_page_config(
+    page_title="ConvertPy",  # Title of the browser tab
+    page_icon="🐍",          # Emoji or path to an icon image
+    layout="wide"            # Optional: Makes the layout wider
+)
 # Compile C++ code into a portable executable
 def compile_cpp_to_exe(cpp_code: str, file_name: str = "program", target_os: Optional[str] = None) -> Optional[str]:
     cpp_file_path = f"{file_name}.cpp"
