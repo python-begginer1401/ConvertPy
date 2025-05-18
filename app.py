@@ -211,7 +211,7 @@ def convert_page():
                         elif model_selection in ["DeepSeek", "Llama"]:
                             headers = {"Authorization": f"Bearer {api_key}"}
                             model_id = (
-                                "deepseek-ai/deepseek-llm"
+                                "deepseek/deepseek-prover-v2:free"
                                 if model_selection == "DeepSeek"
                                 else "meta-llama/llama-3.3-8b-instruct:free"
                             )
