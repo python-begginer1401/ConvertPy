@@ -64,9 +64,9 @@ streamlit run app.py
 
 ## 🌐 Links & Resources
 
-- [Live Demo](#) <!-- Add your live demo URL here -->
-- [Model Evaluation](#) <!-- Add dashboard URL if available -->
-- [Project Poster PDF](#) <!-- Add PDF link -->
+- [Live Demo](#) (https://convertpy2025.streamlit.app/)
+- [Model Evaluation](#)(https://drive.google.com/file/d/1WB8LL4n-H4COhj9CWI76urzG08N0NfqB/view?usp=drive_link)
+- [Project Poster PDF](#)(https://drive.google.com/file/d/1NYAsT54mHimJodFboNA7I6_KD8EqUQDV/view?usp=sharing)
 - Telegram: [@SWE_ME](https://t.me/SWE_ME)
 
 ---
